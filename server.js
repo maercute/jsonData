@@ -64,6 +64,13 @@ server.use((req, res, next) => {
   next();
 });
 
+server.use("/collections", (req, res, next) => {
+  if (req.method === "GET" && req.user) {
+    req.query.userId = req.user.id;
+  }
+  next();
+});
+
 server.use(router);
 
 const port = process.env.PORT || 8080;
