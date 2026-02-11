@@ -35,20 +35,34 @@ const router = jsonServer.router(dbPath);
 server.db = router.db;
 
 server.use(jsonServer.bodyParser);
-
 server.use(jsonServer.defaults());
 
 const rules = auth.rewriter({
   users: 600,
   restaurants: 444,
   dishes: 444,
-  reviews: 644,
+  reviews: 460,
   collections: 600,
 });
 
 server.use(rules);
-
 server.use(auth);
+
+server.use((req, res, next) => {
+  if (!req.user) return next();
+
+  delete req.body.userId;
+
+  if (req.method === "POST" && req.path === "/reviews") {
+    req.body.userId = req.user.id;
+  }
+
+  if (req.method === "POST" && req.path === "/collections") {
+    req.body.userId = req.user.id;
+  }
+
+  next();
+});
 
 server.use(router);
 
