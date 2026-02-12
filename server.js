@@ -9,9 +9,8 @@ const isProd = process.env.NODE_ENV === "production";
 const dbDirectory = isProd ? "/data" : __dirname;
 const dbPath = path.join(dbDirectory, "db.json");
 
-if (!fs.existsSync(dbDirectory)) {
-  fs.mkdirSync(dbDirectory, { recursive: true });
-}
+// 初始化 db
+if (!fs.existsSync(dbDirectory)) fs.mkdirSync(dbDirectory, { recursive: true });
 
 if (!fs.existsSync(dbPath)) {
   console.log("初始化資料庫 db.json ...");
@@ -24,6 +23,7 @@ if (!fs.existsSync(dbPath)) {
         dishes: [],
         reviews: [],
         collections: [],
+        news: [],
       },
       null,
       2,
@@ -37,39 +37,107 @@ server.db = router.db;
 server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
+/* ========================
+   權限規則
+======================== */
 const rules = auth.rewriter({
   users: 600,
-  restaurants: 444,
-  dishes: 444,
-  reviews: 460,
   collections: 600,
+  reviews: 664,
+  dishes: 664,
+  restaurants: 444,
+  news: 444,
 });
 
 server.use(rules);
 server.use(auth);
 
+/* ========================
+   未登入禁止會員資料
+======================== */
+server.use((req, res, next) => {
+  if (!req.user) {
+    if (req.path.startsWith("/users") || req.path.startsWith("/collections"))
+      return res.status(401).json({ error: "需要登入" });
+  }
+  next();
+});
+
+/* ========================
+   綁定 owner + 防偽造
+======================== */
 server.use((req, res, next) => {
   if (!req.user) return next();
 
   delete req.body.userId;
 
-  if (req.method === "POST" && req.path === "/reviews") {
-    req.body.userId = req.user.id;
-  }
+  if (["POST", "PATCH"].includes(req.method)) {
+    if (req.path.startsWith("/collections")) req.body.userId = req.user.id;
+    if (req.path.startsWith("/reviews")) req.body.userId = req.user.id;
 
-  if (req.method === "POST" && req.path === "/collections") {
-    req.body.userId = req.user.id;
+    // 投稿料理
+    if (req.path.startsWith("/dishes")) {
+      req.body.userId = req.user.id;
+
+      // 新增一定是草稿
+      if (req.method === "POST") req.body.status = "draft";
+    }
   }
 
   next();
 });
 
-server.use("/collections", (req, res, next) => {
-  if (req.method === "GET" && req.user) {
-    req.query.userId = req.user.id;
+/* ========================
+   GET 只讀自己的 collections/users
+======================== */
+server.use((req, res, next) => {
+  if (!req.user) return next();
+
+  if (req.method === "GET") {
+    if (req.path.startsWith("/collections")) req.query.userId = req.user.id;
+
+    if (req.path.match(/^\/users\/?\d*$/)) req.query.id = req.user.id;
+  }
+
+  next();
+});
+
+/* ========================
+   只有管理員可發佈料理
+======================== */
+server.use((req, res, next) => {
+  if (req.method === "PATCH" && req.path.startsWith("/dishes")) {
+    if (req.body.status === "published") {
+      if (!req.user || req.user.role !== "admin")
+        return res.status(403).json({ error: "只有管理員可發布" });
+    }
   }
   next();
 });
+
+/* ========================
+   dishes 可見性過濾
+======================== */
+router.render = (req, res) => {
+  const data = res.locals.data;
+
+  if (req.method === "GET" && req.path.startsWith("/dishes")) {
+    const user = req.user;
+
+    const visible = (dish) => {
+      if (user && user.role === "admin") return true;
+      if (user && dish.userId === user.id) return true;
+      return dish.status === "published";
+    };
+
+    if (Array.isArray(data)) return res.jsonp(data.filter(visible));
+    if (!visible(data)) return res.status(404).json({ error: "Not found" });
+
+    return res.jsonp(data);
+  }
+
+  res.jsonp(data);
+};
 
 server.use(router);
 
