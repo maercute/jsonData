@@ -9,7 +9,7 @@ const server = jsonServer.create();
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
-   1. 資料庫與路徑初始化
+   1. 資料庫初始化
 ======================== */
 const isProd = process.env.NODE_ENV === "production";
 const dbDirectory = isProd ? "/data" : __dirname;
@@ -56,55 +56,38 @@ const rules = auth.rewriter({
 });
 
 server.use(rules);
-server.use(auth); // 解析 Token 並產生 req.user
+server.use(auth); // 解析 Token
 
 /* ========================
-   3. 核心邏輯：自動過濾 & 綁定 ID (修正版)
+   3. 寫入時強制綁定 ID (GET 邏輯移除了)
 ======================== */
 server.use((req, res, next) => {
-  if (!req.user) return next();
+  if (req.method === "POST" || req.method === "PATCH") {
+    if (req.user) {
+      // 取得 ID (兼容 sub 與 id)
+      const currentUserId = req.user.sub || req.user.id;
+      const urlPath = req.path;
 
-  // 取得 ID：json-server-auth 解析出來的 ID 可能在 sub 或 id
-  const currentUserId = req.user.sub || req.user.id;
-  const urlPath = req.path;
+      delete req.body.userId; // 防止竄改
 
-  // --- [寫入權限] POST / PATCH / PUT ---
-  if (["POST", "PATCH", "PUT"].includes(req.method)) {
-    delete req.body.userId; // 防止竄改
-    if (
-      urlPath.includes("/collections") ||
-      urlPath.includes("/reviews") ||
-      urlPath.includes("/dishes")
-    ) {
-      req.body.userId = Number(currentUserId);
-    }
-    if (urlPath.includes("/dishes") && req.method === "POST") {
-      req.body.status = "draft";
-    }
-  }
+      if (
+        urlPath.includes("/collections") ||
+        urlPath.includes("/reviews") ||
+        urlPath.includes("/dishes")
+      ) {
+        req.body.userId = Number(currentUserId);
+      }
 
-  // --- [讀取過濾] GET：解決看到所有人資料的關鍵 ---
-  if (req.method === "GET") {
-    // 修正：使用 URL 物件來強制添加 userId 查詢參數
-    // 這能確保即便原本網址有 _expand 等參數也不會衝突
-    if (urlPath === "/collections" || urlPath.startsWith("/collections/")) {
-      req.query.userId = Number(currentUserId);
-      console.log(
-        `[Filter] 已將 userId=${currentUserId} 加入 collections 請求`,
-      );
-    }
-
-    // 針對單一用戶查詢：限制只能看自己
-    if (urlPath === "/users" || urlPath.startsWith("/users/")) {
-      req.query.id = Number(currentUserId);
+      if (urlPath.includes("/dishes") && req.method === "POST") {
+        req.body.status = "draft";
+      }
     }
   }
-
   next();
 });
 
 /* ========================
-   4. 管理員與渲染邏輯 (保持不變)
+   4. 管理員權限
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
@@ -117,20 +100,64 @@ server.use((req, res, next) => {
   next();
 });
 
+/* ========================
+   ⭐ 5. 輸出攔截器 (核彈級過濾) ⭐
+   既然 req.query 無效，我們就在資料送出前暴力篩選
+======================== */
 router.render = (req, res) => {
-  const data = res.locals.data;
+  let data = res.locals.data;
   const user = req.user;
+  const urlPath = req.path;
 
-  if (req.method === "GET" && req.path.includes("/dishes")) {
+  // 如果 data 是空或錯誤，直接回傳
+  if (!data) return res.jsonp(data);
+
+  // === 針對 Collections 做暴力過濾 ===
+  if (req.method === "GET" && urlPath.includes("/collections")) {
+    if (Array.isArray(data)) {
+      // 如果沒登入，理論上 rules:600 會擋，但這裡再保險一次
+      if (!user) {
+        return res.status(401).json({ error: "請先登入" });
+      }
+
+      const currentUserId = Number(user.sub || user.id);
+      console.log(
+        `[Render Filter] 過濾 collections for User: ${currentUserId}`,
+      );
+
+      // ⭐ 這裡就是核心：手動用 JS 過濾陣列，誰都擋不了這招
+      data = data.filter((item) => item.userId === currentUserId);
+    }
+  }
+
+  // === 針對 Users 做暴力過濾 ===
+  if (req.method === "GET" && urlPath.includes("/users")) {
+    if (Array.isArray(data)) {
+      if (!user) return res.status(401).json({ error: "請先登入" });
+      const currentUserId = Number(user.sub || user.id);
+      // 只回傳自己的那筆
+      data = data.filter((item) => item.id === currentUserId);
+    }
+  }
+
+  // === 針對 Dishes 的可見性過濾 ===
+  if (req.method === "GET" && urlPath.includes("/dishes")) {
     const isVisible = (dish) => {
       if (user && user.role === "admin") return true;
       if (user && dish.userId === (user.sub || user.id)) return true;
       return dish.status === "published";
     };
-    if (Array.isArray(data)) return res.jsonp(data.filter(isVisible));
-    if (data && !isVisible(data))
-      return res.status(404).json({ error: "找不到該內容" });
+
+    if (Array.isArray(data)) {
+      data = data.filter(isVisible);
+    } else {
+      // 如果是單筆資料 (GET /dishes/1)
+      if (!isVisible(data)) {
+        return res.status(404).json({ error: "無權限查看" });
+      }
+    }
   }
+
   res.jsonp(data);
 };
 
@@ -138,5 +165,5 @@ server.use(router);
 
 const port = process.env.PORT || 8080;
 server.listen(port, "0.0.0.0", () => {
-  console.log(`✅ Spoonful API 運行中 | Port: ${port}`);
+  console.log(`Spoonful API Running on port ${port}`);
 });
