@@ -5,7 +5,7 @@ const fs = require("fs");
 
 const server = jsonServer.create();
 
-// JWT Secret
+// 設定 JWT Secret
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
@@ -59,58 +59,28 @@ server.use(rules);
 server.use(auth); // 解析 Token 並產生 req.user
 
 /* ========================
-   3. 強制過濾 Middleware
+   3. Middleware: 綁定 userId
 ======================== */
 server.use((req, res, next) => {
   const user = req.user;
+  if (!user) return next();
 
-  // --- GET 請求過濾 collections ---
-  if (req.method === "GET" && req.path.startsWith("/collections")) {
-    if (!user || user.role !== "admin") {
-      const currentUserId = user ? Number(user.sub || user.id) : null;
+  const currentUserId = Number(user.sub || user.id);
 
-      // 攔截 res.jsonp 進行過濾
-      const originalJsonp = res.jsonp.bind(res);
-      res.jsonp = (data) => {
-        if (Array.isArray(data)) {
-          const filtered = data.filter(
-            (item) => Number(item.userId) === currentUserId,
-          );
-          return originalJsonp(filtered);
-        }
-        if (data && Number(data.userId) !== currentUserId) {
-          return res.status(404).json({ error: "無權限查看" });
-        }
-        return originalJsonp(data);
-      };
-    }
-  }
-
-  // --- GET 請求過濾 users ---
-  if (req.method === "GET" && req.path.startsWith("/users")) {
-    if (user && user.role !== "admin") {
-      req.query = { ...req.query, id: Number(user.sub || user.id) };
-    }
-  }
-
-  // --- POST / PATCH / PUT 綁定 userId ---
+  // --- POST / PATCH / PUT 自動綁定 userId ---
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
-    if (user) {
-      const currentUserId = Number(user.sub || user.id);
+    if (
+      req.path.includes("/collections") ||
+      req.path.includes("/reviews") ||
+      req.path.includes("/dishes")
+    ) {
+      delete req.body.userId; // 防止前端偽造
+      req.body.userId = currentUserId;
+    }
 
-      if (
-        req.path.includes("/collections") ||
-        req.path.includes("/reviews") ||
-        req.path.includes("/dishes")
-      ) {
-        delete req.body.userId; // 防止偽造
-        req.body.userId = currentUserId;
-      }
-
-      // dishes POST 預設 draft
-      if (req.path.includes("/dishes") && req.method === "POST") {
-        req.body.status = "draft";
-      }
+    // dishes POST 預設 draft
+    if (req.path.includes("/dishes") && req.method === "POST") {
+      req.body.status = "draft";
     }
   }
 
@@ -132,13 +102,41 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   5. router.render 安全過濾 dishes
+   5. router.render: 安全過濾 collections & dishes
 ======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
 
-  // Dishes 過濾
+  // --- Collections 過濾 ---
+  if (req.method === "GET" && req.path.startsWith("/collections")) {
+    if (Array.isArray(data)) {
+      // 普通使用者只看自己的
+      if (user && user.role !== "admin") {
+        const currentUserId = Number(user.sub || user.id);
+        const filtered = data.filter(
+          (item) => Number(item.userId) === currentUserId,
+        );
+        return res.jsonp(filtered);
+      }
+      // 管理員看全部
+      return res.jsonp(data);
+    }
+
+    // 單筆資源
+    if (data) {
+      if (
+        !user ||
+        (user.role !== "admin" &&
+          Number(data.userId) !== Number(user.sub || user.id))
+      ) {
+        return res.status(404).json({ error: "無權限查看" });
+      }
+      return res.jsonp(data);
+    }
+  }
+
+  // --- Dishes 過濾 ---
   if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
       if (!dish) return false;
