@@ -38,6 +38,22 @@ server.use(jsonServer.bodyParser);
 
 server.use(jsonServer.defaults());
 
+// Ensure CORS allows Authorization and related headers (for axios / browser requests)
+server.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-forwarded-authorization, x-access-token",
+  );
+  res.header("Access-Control-Expose-Headers", "Authorization");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 const rules = auth.rewriter({
   users: 600,
   restaurants: 444,
@@ -47,6 +63,49 @@ const rules = auth.rewriter({
 });
 
 server.use(rules);
+
+// Normalize auth token from alternative locations so proxies (like Zeabur) that
+// strip the standard `Authorization` header can still forward tokens.
+server.use((req, res, next) => {
+  if (!req.headers || req.headers.authorization) return next();
+
+  const alt =
+    req.headers["x-forwarded-authorization"] ||
+    req.headers["x-access-token"] ||
+    null;
+  if (alt) {
+    req.headers.authorization = /^Bearer\s+/i.test(alt) ? alt : `Bearer ${alt}`;
+    return next();
+  }
+
+  if (req.query && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+    return next();
+  }
+
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const parts = cookieHeader.split(";").map((s) => s.trim());
+    for (const part of parts) {
+      const [k, v] = part.split("=");
+      if (!k) continue;
+      const key = k.trim();
+      if (
+        key === "token" ||
+        key === "access_token" ||
+        key.toLowerCase() === "authorization"
+      ) {
+        const val = (v || "").trim();
+        req.headers.authorization = /^Bearer\s+/i.test(val)
+          ? val
+          : `Bearer ${val}`;
+        break;
+      }
+    }
+  }
+
+  return next();
+});
 
 server.use(auth);
 
