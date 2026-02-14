@@ -69,7 +69,7 @@ server.use((req, res, next) => {
       req.path.includes("/reviews") ||
       req.path.includes("/dishes")
     ) {
-      delete req.body.userId;
+      delete req.body.userId; // 防止偽造
       req.body.userId = currentUserId;
     }
 
@@ -96,16 +96,17 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   router.render 安全過濾
+   router.render 過濾 collections / dishes
 ======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
+  const isCollections = req.path.startsWith("/collections");
+  const isDishes = req.path.includes("/dishes");
 
-  // --- Collections ---
-  if (req.path.startsWith("/collections")) {
+  // --- Collections 過濾 ---
+  if (isCollections) {
     if (!user) {
-      // 未登入不能看任何 collections
       return res.status(401).json({ error: "需要登入" });
     }
 
@@ -114,10 +115,9 @@ router.render = (req, res) => {
 
     if (Array.isArray(data)) {
       if (!isAdmin) {
-        const filtered = data.filter(
-          (item) => Number(item.userId) === currentUserId,
+        return res.jsonp(
+          data.filter((item) => Number(item.userId) === currentUserId),
         );
-        return res.jsonp(filtered);
       }
       return res.jsonp(data);
     }
@@ -129,11 +129,11 @@ router.render = (req, res) => {
       return res.jsonp(data);
     }
 
-    return res.jsonp([]); // 安全 fallback
+    return res.jsonp([]); // fallback
   }
 
-  // --- Dishes ---
-  if (req.path.includes("/dishes")) {
+  // --- Dishes 過濾 ---
+  if (isDishes) {
     const isAdmin = user && user.role === "admin";
     const currentUserId = user ? Number(user.sub || user.id) : null;
 
@@ -149,7 +149,6 @@ router.render = (req, res) => {
       return res.status(404).json({ error: "無權限查看" });
   }
 
-  // 其他資源直接返回
   res.jsonp(data);
 };
 
