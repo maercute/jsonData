@@ -20,6 +20,12 @@
       "email": "nopineapple@example.com",
       "password": "123",
       "avatar": "/assets/user3.jpg"
+    },
+    {
+      "email": "abc123@test.com",
+      "password": "$2a$10$jIKT4JvaOQkgY8L80.Gp.eBCT93O17uf/DuTT9vnLBkY9x8yBHJvy",
+      "name": "tester",
+      "id": 4
     }
   ],
   "collections": [
@@ -27,50 +33,55 @@
       "id": 1,
       "userId": 1,
       "name": "愛店",
-      "type": "favorites",
       "dishIds": [1, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     },
     {
       "id": 2,
       "userId": 1,
       "name": "絕不吃",
-      "type": "blacklist",
       "dishIds": []
     },
     {
       "id": 3,
       "userId": 1,
       "name": "週末早午餐",
-      "type": "custom",
       "dishIds": []
     },
     {
       "id": 4,
       "userId": 2,
       "name": "愛店",
-      "type": "favorites",
       "dishIds": []
     },
     {
       "id": 5,
       "userId": 2,
       "name": "絕不吃",
-      "type": "blacklist",
       "dishIds": []
     },
     {
       "id": 6,
       "userId": 3,
       "name": "愛店",
-      "type": "favorites",
       "dishIds": []
     },
     {
       "id": 7,
       "userId": 3,
       "name": "絕不吃",
-      "type": "blacklist",
       "dishIds": []
+    },
+    {
+      "id": 8,
+      "userId": 4,
+      "name": "愛店",
+      "dishIds": [1, 3, 5]
+    },
+    {
+      "id": 9,
+      "userId": 4,
+      "name": "絕不吃",
+      "dishIds": [2, 10]
     }
   ],
   "restaurants": [
@@ -477,7 +488,6 @@
       "id": 1,
       "userId": 1,
       "dishId": 1,
-      "type": "review",
       "foundMines": ["紅蘿蔔", "洋蔥"],
       "comment": "牛味很夠，完全不辣，不要加什麼先跟老闆說都可以拿掉， 可以選牛腩或牛腱，麵可選家常麵刀削麵關廟麵，首推刀削麵 老闆特製醬料加上去非常好吃 內用免費加湯",
       "date": "2025-12-10",
@@ -487,7 +497,6 @@
       "id": 2,
       "userId": 2,
       "dishId": 1,
-      "type": "review",
       "foundMines": ["紅蘿蔔", "蔥"],
       "comment": "酸菜跟小菜最好吃，今天肉有點硬，但湯一樣好喝 吃完又免費加湯加點牛肉餃尬一起， 建議店家出個牛肉湯餃的菜",
       "date": "2025-12-12",
@@ -497,7 +506,6 @@
       "id": 3,
       "userId": 3,
       "dishId": 1,
-      "type": "review",
       "foundMines": ["洋蔥", "番茄"],
       "comment": "牛肉的口感軟嫩，但仍保有嚼勁，不會過於軟爛， 且能充分吸收湯頭的精華 湯頭以清爽、不油膩適當的配料突顯牛肉的鮮甜， 雖然我不吃紅蘿蔔， 但是這家在牛肉湯裡燉的香嫩的紅蘿蔔我完全可以 額外加價加個蛋花更是完美， 用料實在價格合理， 每週都想來一碗撫慰社畜的疲憊。 ",
       "date": "2025-12-15",
@@ -507,7 +515,6 @@
       "id": 4,
       "userId": 1,
       "dishId": 2,
-      "type": "review",
       "foundMines": ["洋蔥", "蔥"],
       "comment": "湯頭紅燒得很入味，辣味是有層次的那種，肉質紮實。",
       "date": "2025-12-16",
@@ -517,7 +524,6 @@
       "id": 5,
       "userId": 2,
       "dishId": 3,
-      "type": "review",
       "foundMines": [],
       "comment": "乾拌醬汁鹹香適中，黃牛肉質軟嫩，配上 Q 彈麵條非常刷嘴！",
       "date": "2025-12-18",
@@ -527,7 +533,6 @@
       "id": 6,
       "userId": 2,
       "dishId": 4,
-      "type": "review",
       "foundMines": ["辣"],
       "comment": "雖然單價稍高，但和牛油花分布均勻，入口即化，非常值得。",
       "date": "2025-12-20",
@@ -537,7 +542,6 @@
       "id": 7,
       "userId": 2,
       "dishId": 5,
-      "type": "review",
       "foundMines": ["辣", "酸菜"],
       "comment": "黃牛肉真的很軟嫩，麵條 Q 彈，重點是湯頭醇厚卻不油膩。",
       "date": "2025-12-21",
@@ -547,7 +551,6 @@
       "id": 8,
       "userId": 3,
       "dishId": 5,
-      "type": "review",
       "foundMines": ["洋蔥", "酸菜"],
       "comment": "清真認證吃起來很安心，牛肉的品質明顯比一般店家好很多。",
       "date": "2025-12-22",
@@ -557,7 +560,6 @@
       "id": 9,
       "userId": 2,
       "dishId": 6,
-      "type": "review",
       "foundMines": [],
       "comment": "麵條吸飽了濃郁醬汁，配上他們家的滷味簡直完美組合。",
       "date": "2025-12-23",
@@ -567,7 +569,6 @@
       "id": 10,
       "userId": 1,
       "dishId": 7,
-      "type": "review",
       "foundMines": ["辣"],
       "comment": "老字號的味道就是穩，湯頭濃郁肉塊大，是在地人的首選。",
       "date": "2025-12-24",
@@ -577,7 +578,6 @@
       "id": 11,
       "userId": 2,
       "dishId": 8,
-      "type": "review",
       "foundMines": ["洋蔥"],
       "comment": "蛋皮真的很漂亮，茄汁酸酸甜甜的很開胃。",
       "date": "2025-12-25",
@@ -587,7 +587,6 @@
       "id": 12,
       "userId": 1,
       "dishId": 9,
-      "type": "review",
       "foundMines": ["紅蘿蔔"],
       "comment": "雞塊很大塊，咖哩醬配飯可以吃好幾碗。",
       "date": "2025-12-26",
@@ -597,7 +596,6 @@
       "id": 13,
       "userId": 3,
       "dishId": 10,
-      "type": "review",
       "foundMines": [],
       "comment": "起司給超多，吃起來非常有飽足感，海鮮也很鮮。",
       "date": "2025-12-27",
@@ -607,7 +605,6 @@
       "id": 14,
       "userId": 2,
       "dishId": 11,
-      "type": "review",
       "foundMines": ["蔥"],
       "comment": "真的有一整隻蝦仁，口感很彈牙，皮也不會太厚。",
       "date": "2025-12-28",
@@ -617,7 +614,6 @@
       "id": 15,
       "userId": 1,
       "dishId": 12,
-      "type": "review",
       "foundMines": ["蔥"],
       "comment": "湯汁多到會噴，肉餡很新鮮，CP值很高的一家店。",
       "date": "2025-12-29",
@@ -627,7 +623,6 @@
       "id": 16,
       "userId": 3,
       "dishId": 13,
-      "type": "review",
       "foundMines": [],
       "comment": "咖啡香氣很重，口感綿密，是近期吃到最好吃的提拉米蘇。",
       "date": "2025-12-30",
@@ -637,7 +632,6 @@
       "id": 17,
       "userId": 2,
       "dishId": 14,
-      "type": "review",
       "foundMines": [],
       "comment": "檸檬糖霜酸得很夠味，蛋糕本身口感很紮實，大推。",
       "date": "2025-12-31",
@@ -657,7 +651,6 @@
       "id": 19,
       "userId": 3,
       "dishId": 16,
-      "type": "review",
       "foundMines": ["紅蘿蔔"],
       "comment": "肉質很嫩，五分熟處理得很完美，原味就很好吃。",
       "date": "2026-01-03",
@@ -667,7 +660,6 @@
       "id": 20,
       "userId": 1,
       "dishId": 18,
-      "type": "review",
       "foundMines": ["蔥"],
       "comment": "湯頭偏重口味但非常好喝，不過蔥給得超多，討厭蔥的人記得先說。",
       "date": "2026-01-10",
@@ -677,7 +669,6 @@
       "id": 21,
       "userId": 3,
       "dishId": 22,
-      "type": "review",
       "foundMines": [],
       "comment": "花生醬濃郁到不行，跟起司融合在一起簡直是藝術，強烈推薦！",
       "date": "2026-01-15",
@@ -687,7 +678,6 @@
       "id": 22,
       "userId": 1,
       "dishId": 24,
-      "type": "review",
       "foundMines": ["香菜"],
       "comment": "貢丸很 Q，但湯裡灑了一堆香菜... OR6A2 基因的人真的要小心地雷！",
       "date": "2026-01-20",
@@ -697,7 +687,6 @@
       "id": 23,
       "userId": 3,
       "dishId": 25,
-      "type": "review",
       "foundMines": ["鳳梨"],
       "comment": "這不是披薩！這是對義大利人的褻瀆！為什麼要在神聖的起司上放水果？",
       "date": "2026-01-25",
@@ -707,38 +696,38 @@
   "news": [
     {
       "id": 1,
-      "title": "服務​條款​與隱私權​政策​更新​通知​",
+      "title": "服務條款與隱私權政策更新通知",
       "category": "系統公告",
       "date": "2025.10.29",
       "image": "news_feature.jpg",
-      "summary": "配合個​資​法規，​我​們​更新​了​服務​條款​與隱私權​政策，​請用​戶撥​冗查看。​本​次​調整​不​影響服務​使用​體驗。​",
+      "summary": "配合個資法規，我們更新了服務條款與隱私權政策，請用戶撥冗查看。本次調整不影響服務使用體驗。",
       "tags": ["服務", "法規"]
     },
     {
       "id": 2,
-      "title": "如何​避開​餐廳​「隱藏版​地雷」？​挑食者​必看！​",
+      "title": "如何避開餐廳「隱藏版地雷」？挑食者必看！",
       "category": "挑食專欄",
       "date": "2025.11.07",
-      "image": "news_top10.jpg",
-      "summary": "哪些​料理​菜單​上​沒寫，​卻常​偷​加香菇、​洋蔥？​教​你​ 5 個點餐時​避雷​的​溝通​技巧。​",
+      "images": ["news_top10.jpg"],
+      "summary": "哪些料理菜單上沒寫，卻常偷加香菇、洋蔥？教你 5 個點餐時避雷的溝通技巧。",
       "tags": ["技巧", "外食"]
     },
     {
       "id": 3,
-      "title": "系統​維護​公告：​伺服器​升​級​作業",
+      "title": "系統維護公告：伺服器升級作業",
       "category": "系統公告",
       "date": "2025.11.11",
-      "image": "news_recruitment.jpg",
-      "summary": "為​了​提供​更​穩定​的​服務，​Spoonfu​l 將​於本​週日​凌晨​進行​伺服器​維護，​預計​暫​停服​務 2 ​小時。​",
+      "images": ["news_recruitment.jpg"],
+      "summary": "為了提供更穩定的服務，Spoonful 將於本週日凌晨進行伺服器維護，預計暫停服務 2 小時。",
       "tags": ["系統", "維護"]
     },
     {
       "id": 4,
-      "title": "三​色豆​的​逆襲：​營養​價值​大​公開",
+      "title": "三色豆的逆襲：營養價值大公開",
       "category": "挑食專欄",
       "date": "2025.11.26",
-      "image": "news_server.jpg",
-      "summary": "雖然​被​稱為​便​當​殺手，​但​三色​豆其實​冷凍技​術​能​保留​大部分​營養...​雖然​不​好​吃​是​事實。​​",
+      "images": ["news_server.jpg"],
+      "summary": "雖然被稱為便當殺手，但三色豆其實冷凍技術能保留大部分營養...雖然不好吃是事實。",
       "tags": ["三色豆", "健康"]
     },
     {
@@ -746,8 +735,8 @@
       "title": "為何會有人天生討厭香菜？基因告訴你",
       "category": "挑食專欄",
       "date": "2025.12.03",
-      "image": "news_cilantro.jpg",
-      "summary": "OR6A2 ​基因讓​你​覺​得​香​菜​有​肥皂味？ ​這不​是​挑食，​這​是​天生​的​生存本​能！",
+      "images": ["news_cilantro.jpg"],
+      "summary": "OR6A2 基因讓你覺得香菜有肥皂味？ 這不是挑食，這是天生的生存本能！",
       "tags": ["科普", "香菜"]
     }
   ]
