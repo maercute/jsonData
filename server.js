@@ -44,11 +44,11 @@ server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
 /* ========================
-   2. 權限規則設定
+   2. 權限規則設定 (保留原本的高安全性設定)
 ======================== */
 const rules = auth.rewriter({
-  users: 600,
-  collections: 600,
+  users: 600, // 保留：只有本人可讀寫
+  collections: 600, // 保留：只有本人可讀寫
   reviews: 664,
   dishes: 664,
   restaurants: 444,
@@ -56,38 +56,71 @@ const rules = auth.rewriter({
 });
 
 server.use(rules);
-server.use(auth); // 解析 Token
+server.use(auth); // 解析 Token 並產生 req.user
 
 /* ========================
-   3. 寫入時強制綁定 ID (GET 邏輯移除了)
+   3. 核心邏輯：強制過濾 (Force Filter Middleware)
+   這個中間件會確保 Router 收到帶有過濾參數的請求
 ======================== */
 server.use((req, res, next) => {
-  if (req.method === "POST" || req.method === "PATCH") {
-    if (req.user) {
-      // 取得 ID (兼容 sub 與 id)
-      const currentUserId = req.user.sub || req.user.id;
-      const urlPath = req.path;
+  if (!req.user) return next(); // 沒登入會被上面的 rules:600 擋下
 
-      delete req.body.userId; // 防止竄改
+  const urlPath = req.path;
+  const currentUserId = Number(req.user.sub || req.user.id); // 確保是數字
+  const userRole = req.user.role;
 
-      if (
-        urlPath.includes("/collections") ||
-        urlPath.includes("/reviews") ||
-        urlPath.includes("/dishes")
-      ) {
-        req.body.userId = Number(currentUserId);
+  // --- [A. 讀取過濾] GET 請求 ---
+  if (req.method === "GET") {
+    // 針對 Collections: 如果不是管理員，強制加上 userId 過濾
+    // 使用 startsWith 確保能處理 /collections 也能處理 /collections?_expand=...
+    if (urlPath === "/collections" || urlPath.startsWith("/collections/")) {
+      if (userRole !== "admin") {
+        // 1. 修改 query 物件 (給 Express 看的)
+        req.query.userId = currentUserId;
+
+        // 2. [關鍵修正] 修改 url 字串 (給 json-server Router 看的)
+        // 如果網址原本沒有 ?，就加 ?userId=...，如果有 ?，就加 &userId=...
+        const separator = req.url.includes("?") ? "&" : "?";
+        req.url += `${separator}userId=${currentUserId}`;
+
+        console.log(`🔒 [Auto-Filter] 已強制將請求重寫為: ${req.url}`);
       }
+    }
 
-      if (urlPath.includes("/dishes") && req.method === "POST") {
-        req.body.status = "draft";
+    // 針對 Users: 限制只能看自己
+    if (urlPath === "/users" || urlPath.startsWith("/users/")) {
+      if (userRole !== "admin") {
+        req.query.id = currentUserId;
+        // 同樣重寫 URL 確保 Router 吃到參數
+        const separator = req.url.includes("?") ? "&" : "?";
+        req.url += `${separator}id=${currentUserId}`;
       }
     }
   }
+
+  // --- [B. 寫入綁定] POST / PATCH / PUT ---
+  if (["POST", "PATCH", "PUT"].includes(req.method)) {
+    // 針對需要歸屬權的資源，強制綁定 userId
+    if (
+      urlPath.includes("/collections") ||
+      urlPath.includes("/reviews") ||
+      urlPath.includes("/dishes")
+    ) {
+      delete req.body.userId; // 刪除前端傳的，防止偽造
+      req.body.userId = currentUserId;
+    }
+
+    // 針對 dishes 的特殊邏輯
+    if (urlPath.includes("/dishes") && req.method === "POST") {
+      req.body.status = "draft";
+    }
+  }
+
   next();
 });
 
 /* ========================
-   4. 管理員權限
+   4. 管理員權限與 Render 邏輯
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
@@ -100,62 +133,20 @@ server.use((req, res, next) => {
   next();
 });
 
-/* ========================
-   ⭐ 5. 輸出攔截器 (核彈級過濾) ⭐
-   既然 req.query 無效，我們就在資料送出前暴力篩選
-======================== */
 router.render = (req, res) => {
-  let data = res.locals.data;
+  const data = res.locals.data;
   const user = req.user;
-  const urlPath = req.path;
 
-  // 如果 data 是空或錯誤，直接回傳
-  if (!data) return res.jsonp(data);
-
-  // === 針對 Collections 做暴力過濾 ===
-  if (req.method === "GET" && urlPath.includes("/collections")) {
-    if (Array.isArray(data)) {
-      // 如果沒登入，理論上 rules:600 會擋，但這裡再保險一次
-      if (!user) {
-        return res.status(401).json({ error: "請先登入" });
-      }
-
-      const currentUserId = Number(user.sub || user.id);
-      console.log(
-        `[Render Filter] 過濾 collections for User: ${currentUserId}`,
-      );
-
-      // ⭐ 這裡就是核心：手動用 JS 過濾陣列，誰都擋不了這招
-      data = data.filter((item) => item.userId === currentUserId);
-    }
-  }
-
-  // === 針對 Users 做暴力過濾 ===
-  if (req.method === "GET" && urlPath.includes("/users")) {
-    if (Array.isArray(data)) {
-      if (!user) return res.status(401).json({ error: "請先登入" });
-      const currentUserId = Number(user.sub || user.id);
-      // 只回傳自己的那筆
-      data = data.filter((item) => item.id === currentUserId);
-    }
-  }
-
-  // === 針對 Dishes 的可見性過濾 ===
-  if (req.method === "GET" && urlPath.includes("/dishes")) {
+  if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
       if (user && user.role === "admin") return true;
-      if (user && dish.userId === (user.sub || user.id)) return true;
+      if (user && dish.userId === Number(user?.sub || user?.id)) return true;
       return dish.status === "published";
     };
 
-    if (Array.isArray(data)) {
-      data = data.filter(isVisible);
-    } else {
-      // 如果是單筆資料 (GET /dishes/1)
-      if (!isVisible(data)) {
-        return res.status(404).json({ error: "無權限查看" });
-      }
-    }
+    if (Array.isArray(data)) return res.jsonp(data.filter(isVisible));
+    if (data && !isVisible(data))
+      return res.status(404).json({ error: "無權限查看" });
   }
 
   res.jsonp(data);
