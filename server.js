@@ -60,6 +60,7 @@ server.use(auth);
 server.use((req, res, next) => {
   const user = req.user;
   if (!user) return next();
+
   const currentUserId = Number(user.sub || user.id);
 
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
@@ -100,11 +101,17 @@ server.use((req, res, next) => {
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
-  const isAdmin = user && user.role === "admin";
-  const currentUserId = user ? Number(user.sub || user.id) : null;
 
-  // collections 過濾
+  // --- Collections ---
   if (req.path.startsWith("/collections")) {
+    if (!user) {
+      // 未登入不能看任何 collections
+      return res.status(401).json({ error: "需要登入" });
+    }
+
+    const isAdmin = user.role === "admin";
+    const currentUserId = Number(user.sub || user.id);
+
     if (Array.isArray(data)) {
       if (!isAdmin) {
         const filtered = data.filter(
@@ -114,16 +121,22 @@ router.render = (req, res) => {
       }
       return res.jsonp(data);
     }
+
     if (data) {
       if (!isAdmin && Number(data.userId) !== currentUserId) {
         return res.status(404).json({ error: "無權限查看" });
       }
       return res.jsonp(data);
     }
+
+    return res.jsonp([]); // 安全 fallback
   }
 
-  // dishes 過濾
+  // --- Dishes ---
   if (req.path.includes("/dishes")) {
+    const isAdmin = user && user.role === "admin";
+    const currentUserId = user ? Number(user.sub || user.id) : null;
+
     const isVisible = (dish) => {
       if (!dish) return false;
       if (isAdmin) return true;
