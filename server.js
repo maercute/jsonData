@@ -9,7 +9,7 @@ const server = jsonServer.create();
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
-   1. 資料庫與路徑初始化
+   1. 資料庫初始化
 ======================== */
 const isProd = process.env.NODE_ENV === "production";
 const dbDirectory = isProd ? "/data" : __dirname;
@@ -44,11 +44,11 @@ server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
 /* ========================
-   2. 權限規則設定
+   2. 權限規則設定 (保留原本的高安全性設定)
 ======================== */
 const rules = auth.rewriter({
-  users: 600,
-  collections: 600,
+  users: 600, // 保留：只有本人可讀寫
+  collections: 600, // 保留：只有本人可讀寫
   reviews: 664,
   dishes: 664,
   restaurants: 444,
@@ -59,44 +59,60 @@ server.use(rules);
 server.use(auth); // 解析 Token 並產生 req.user
 
 /* ========================
-   3. 核心邏輯：自動過濾 & 綁定 ID (修正版)
+   3. 核心邏輯：強制過濾 (Force Filter Middleware)
+   這個中間件會確保 Router 收到帶有過濾參數的請求
 ======================== */
 server.use((req, res, next) => {
-  if (!req.user) return next();
+  if (!req.user) return next(); // 沒登入會被上面的 rules:600 擋下
 
-  // 取得 ID：json-server-auth 解析出來的 ID 可能在 sub 或 id
-  const currentUserId = req.user.sub || req.user.id;
   const urlPath = req.path;
+  const currentUserId = Number(req.user.sub || req.user.id); // 確保是數字
+  const userRole = req.user.role;
 
-  // --- [寫入權限] POST / PATCH / PUT ---
+  // --- [A. 讀取過濾] GET 請求 ---
+  if (req.method === "GET") {
+    // 針對 Collections: 如果不是管理員，強制加上 userId 過濾
+    // 使用 startsWith 確保能處理 /collections 也能處理 /collections?_expand=...
+    if (urlPath === "/collections" || urlPath.startsWith("/collections/")) {
+      if (userRole !== "admin") {
+        // 1. 修改 query 物件 (給 Express 看的)
+        req.query.userId = currentUserId;
+
+        // 2. [關鍵修正] 修改 url 字串 (給 json-server Router 看的)
+        // 如果網址原本沒有 ?，就加 ?userId=...，如果有 ?，就加 &userId=...
+        const separator = req.url.includes("?") ? "&" : "?";
+        req.url += `${separator}userId=${currentUserId}`;
+
+        console.log(`🔒 [Auto-Filter] 已強制將請求重寫為: ${req.url}`);
+      }
+    }
+
+    // 針對 Users: 限制只能看自己
+    if (urlPath === "/users" || urlPath.startsWith("/users/")) {
+      if (userRole !== "admin") {
+        req.query.id = currentUserId;
+        // 同樣重寫 URL 確保 Router 吃到參數
+        const separator = req.url.includes("?") ? "&" : "?";
+        req.url += `${separator}id=${currentUserId}`;
+      }
+    }
+  }
+
+  // --- [B. 寫入綁定] POST / PATCH / PUT ---
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
-    delete req.body.userId; // 防止竄改
+    // 針對需要歸屬權的資源，強制綁定 userId
     if (
       urlPath.includes("/collections") ||
       urlPath.includes("/reviews") ||
       urlPath.includes("/dishes")
     ) {
-      req.body.userId = Number(currentUserId);
+      delete req.body.userId; // 刪除前端傳的，防止偽造
+      req.body.userId = currentUserId;
     }
+
+    // 針對 dishes 的特殊邏輯
     if (urlPath.includes("/dishes") && req.method === "POST") {
       req.body.status = "draft";
-    }
-  }
-
-  // --- [讀取過濾] GET：解決看到所有人資料的關鍵 ---
-  if (req.method === "GET") {
-    // 修正：使用 URL 物件來強制添加 userId 查詢參數
-    // 這能確保即便原本網址有 _expand 等參數也不會衝突
-    if (urlPath === "/collections" || urlPath.startsWith("/collections/")) {
-      req.query.userId = Number(currentUserId);
-      console.log(
-        `[Filter] 已將 userId=${currentUserId} 加入 collections 請求`,
-      );
-    }
-
-    // 針對單一用戶查詢：限制只能看自己
-    if (urlPath === "/users" || urlPath.startsWith("/users/")) {
-      req.query.id = Number(currentUserId);
     }
   }
 
@@ -104,7 +120,7 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   4. 管理員與渲染邏輯 (保持不變)
+   4. 管理員權限與 Render 邏輯
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
@@ -124,13 +140,15 @@ router.render = (req, res) => {
   if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
       if (user && user.role === "admin") return true;
-      if (user && dish.userId === (user.sub || user.id)) return true;
+      if (user && dish.userId === Number(user?.sub || user?.id)) return true;
       return dish.status === "published";
     };
+
     if (Array.isArray(data)) return res.jsonp(data.filter(isVisible));
     if (data && !isVisible(data))
-      return res.status(404).json({ error: "找不到該內容" });
+      return res.status(404).json({ error: "無權限查看" });
   }
+
   res.jsonp(data);
 };
 
@@ -138,5 +156,5 @@ server.use(router);
 
 const port = process.env.PORT || 8080;
 server.listen(port, "0.0.0.0", () => {
-  console.log(`✅ Spoonful API 運行中 | Port: ${port}`);
+  console.log(`Spoonful API Running on port ${port}`);
 });
