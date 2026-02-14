@@ -4,21 +4,17 @@ const path = require("path");
 const fs = require("fs");
 
 const server = jsonServer.create();
-
-// 設定 JWT Secret
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
-   1. 資料庫初始化
+   資料庫初始化
 ======================== */
 const isProd = process.env.NODE_ENV === "production";
 const dbDirectory = isProd ? "/data" : __dirname;
 const dbPath = path.join(dbDirectory, "db.json");
 
 if (!fs.existsSync(dbDirectory)) fs.mkdirSync(dbDirectory, { recursive: true });
-
 if (!fs.existsSync(dbPath)) {
-  console.log("初始化資料庫 db.json ...");
   fs.writeFileSync(
     dbPath,
     JSON.stringify(
@@ -44,11 +40,11 @@ server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
 /* ========================
-   2. 權限規則設定
+   權限規則
 ======================== */
 const rules = auth.rewriter({
-  users: 600, // 只有本人可讀寫
-  collections: 600, // 只有本人可讀寫
+  users: 600,
+  collections: 600,
   reviews: 664,
   dishes: 664,
   restaurants: 444,
@@ -56,29 +52,26 @@ const rules = auth.rewriter({
 });
 
 server.use(rules);
-server.use(auth); // 解析 Token 並產生 req.user
+server.use(auth);
 
 /* ========================
-   3. Middleware: 綁定 userId
+   綁定 userId
 ======================== */
 server.use((req, res, next) => {
   const user = req.user;
   if (!user) return next();
-
   const currentUserId = Number(user.sub || user.id);
 
-  // --- POST / PATCH / PUT 自動綁定 userId ---
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
     if (
       req.path.includes("/collections") ||
       req.path.includes("/reviews") ||
       req.path.includes("/dishes")
     ) {
-      delete req.body.userId; // 防止前端偽造
+      delete req.body.userId;
       req.body.userId = currentUserId;
     }
 
-    // dishes POST 預設 draft
     if (req.path.includes("/dishes") && req.method === "POST") {
       req.body.status = "draft";
     }
@@ -88,7 +81,7 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   4. 管理員權限檢查
+   管理員權限檢查
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
@@ -102,47 +95,39 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   5. router.render: 安全過濾 collections & dishes
+   router.render 安全過濾
 ======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
+  const isAdmin = user && user.role === "admin";
+  const currentUserId = user ? Number(user.sub || user.id) : null;
 
-  // --- Collections 過濾 ---
-  if (req.method === "GET" && req.path.startsWith("/collections")) {
+  // collections 過濾
+  if (req.path.startsWith("/collections")) {
     if (Array.isArray(data)) {
-      // 普通使用者只看自己的
-      if (user && user.role !== "admin") {
-        const currentUserId = Number(user.sub || user.id);
+      if (!isAdmin) {
         const filtered = data.filter(
           (item) => Number(item.userId) === currentUserId,
         );
         return res.jsonp(filtered);
       }
-      // 管理員看全部
       return res.jsonp(data);
     }
-
-    // 單筆資源
     if (data) {
-      if (
-        !user ||
-        (user.role !== "admin" &&
-          Number(data.userId) !== Number(user.sub || user.id))
-      ) {
+      if (!isAdmin && Number(data.userId) !== currentUserId) {
         return res.status(404).json({ error: "無權限查看" });
       }
       return res.jsonp(data);
     }
   }
 
-  // --- Dishes 過濾 ---
-  if (req.method === "GET" && req.path.includes("/dishes")) {
+  // dishes 過濾
+  if (req.path.includes("/dishes")) {
     const isVisible = (dish) => {
       if (!dish) return false;
-      if (user && user.role === "admin") return true;
-      if (user && Number(dish.userId) === Number(user.sub || user.id))
-        return true;
+      if (isAdmin) return true;
+      if (user && Number(dish.userId) === currentUserId) return true;
       return dish.status === "published";
     };
 
@@ -151,12 +136,10 @@ router.render = (req, res) => {
       return res.status(404).json({ error: "無權限查看" });
   }
 
+  // 其他資源直接返回
   res.jsonp(data);
 };
 
-/* ========================
-   6. 啟動 Server
-======================== */
 server.use(router);
 
 const port = process.env.PORT || 8080;
