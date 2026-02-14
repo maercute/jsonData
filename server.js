@@ -5,11 +5,13 @@ const fs = require("fs");
 
 const server = jsonServer.create();
 
+/* ========================
+   DB 初始化
+======================== */
 const isProd = process.env.NODE_ENV === "production";
 const dbDirectory = isProd ? "/data" : __dirname;
 const dbPath = path.join(dbDirectory, "db.json");
 
-// 初始化 db
 if (!fs.existsSync(dbDirectory)) fs.mkdirSync(dbDirectory, { recursive: true });
 
 if (!fs.existsSync(dbPath)) {
@@ -38,7 +40,12 @@ server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
 /* ========================
-   權限規則
+   工具：取得資源名稱
+======================== */
+const getResource = (req) => req.path.split("/").filter(Boolean).pop();
+
+/* ========================
+   權限規則 (600 = 僅本人)
 ======================== */
 const rules = auth.rewriter({
   users: 600,
@@ -57,7 +64,8 @@ server.use(auth);
 ======================== */
 server.use((req, res, next) => {
   if (!req.user) {
-    if (req.path.startsWith("/users") || req.path.startsWith("/collections"))
+    const resource = getResource(req);
+    if (resource === "users" || resource === "collections")
       return res.status(401).json({ error: "需要登入" });
   }
   next();
@@ -70,16 +78,15 @@ server.use((req, res, next) => {
   if (!req.user) return next();
 
   delete req.body.userId;
+  const resource = getResource(req);
 
   if (["POST", "PATCH"].includes(req.method)) {
-    if (req.path.startsWith("/collections")) req.body.userId = req.user.id;
-    if (req.path.startsWith("/reviews")) req.body.userId = req.user.id;
+    if (resource === "collections") req.body.userId = req.user.id;
 
-    // 投稿料理
-    if (req.path.startsWith("/dishes")) {
+    if (resource === "reviews") req.body.userId = req.user.id;
+
+    if (resource === "dishes") {
       req.body.userId = req.user.id;
-
-      // 新增一定是草稿
       if (req.method === "POST") req.body.status = "draft";
     }
   }
@@ -88,16 +95,18 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   GET 只讀自己的 collections/users
+   GET 只讀自己的資料
+   (解決 600 → 401 的核心)
 ======================== */
 server.use((req, res, next) => {
   if (!req.user) return next();
+  if (req.method !== "GET") return next();
 
-  if (req.method === "GET") {
-    if (req.path.startsWith("/collections")) req.query.userId = req.user.id;
+  const resource = getResource(req);
 
-    if (req.path.match(/^\/users\/?\d*$/)) req.query.id = req.user.id;
-  }
+  if (resource === "collections") req.query.userId = req.user.id;
+
+  if (resource === "users") req.query.id = req.user.id;
 
   next();
 });
@@ -106,7 +115,7 @@ server.use((req, res, next) => {
    只有管理員可發佈料理
 ======================== */
 server.use((req, res, next) => {
-  if (req.method === "PATCH" && req.path.startsWith("/dishes")) {
+  if (req.method === "PATCH" && getResource(req) === "dishes") {
     if (req.body.status === "published") {
       if (!req.user || req.user.role !== "admin")
         return res.status(403).json({ error: "只有管理員可發布" });
@@ -121,7 +130,7 @@ server.use((req, res, next) => {
 router.render = (req, res) => {
   const data = res.locals.data;
 
-  if (req.method === "GET" && req.path.startsWith("/dishes")) {
+  if (req.method === "GET" && getResource(req) === "dishes") {
     const user = req.user;
 
     const visible = (dish) => {
@@ -141,6 +150,7 @@ router.render = (req, res) => {
 
 server.use(router);
 
+/* ======================== */
 const port = process.env.PORT || 8080;
 server.listen(port, "0.0.0.0", () => {
   console.log(`JSON Server + Auth running on port ${port}`);
