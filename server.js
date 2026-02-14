@@ -1,8 +1,8 @@
 const jsonServer = require("json-server");
 const auth = require("json-server-auth");
+auth.secret = process.env.JWT_SECRET || "dev_secret";
 const path = require("path");
 const fs = require("fs");
-
 const server = jsonServer.create();
 
 /* ========================
@@ -35,6 +35,7 @@ if (!fs.existsSync(dbPath)) {
 
 const router = jsonServer.router(dbPath);
 server.db = router.db;
+auth.router = router;
 
 server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
