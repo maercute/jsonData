@@ -59,46 +59,46 @@ server.use(rules);
 server.use(auth); // 解析 Token 並產生 req.user
 
 /* ========================
-   3. 核心邏輯：強制過濾 Middleware
+   3. 強制過濾 Middleware
 ======================== */
 server.use((req, res, next) => {
-  if (!req.user) return next(); // 沒登入會被上面的 rules 擋下
-
-  const urlPath = req.path;
-  const currentUserId = Number(req.user.sub || req.user.id);
-  const userRole = req.user.role;
+  const user = req.user;
 
   // --- GET 請求過濾 ---
   if (req.method === "GET") {
-    // Collections: 強制加上 userId 過濾
-    if (urlPath.startsWith("/collections")) {
-      if (userRole !== "admin") {
+    if (user) {
+      const currentUserId = Number(user.sub || user.id);
+
+      // Collections: 普通使用者只看自己的
+      if (req.path.startsWith("/collections") && user.role !== "admin") {
         req.query = { ...req.query, userId: currentUserId };
       }
-    }
 
-    // Users: 強制只能看到自己
-    if (urlPath.startsWith("/users")) {
-      if (userRole !== "admin") {
+      // Users: 普通使用者只看自己
+      if (req.path.startsWith("/users") && user.role !== "admin") {
         req.query = { ...req.query, id: currentUserId };
       }
     }
   }
 
-  // --- 寫入綁定 ---
+  // --- POST / PATCH / PUT 綁定 userId ---
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
-    if (
-      urlPath.includes("/collections") ||
-      urlPath.includes("/reviews") ||
-      urlPath.includes("/dishes")
-    ) {
-      delete req.body.userId; // 防止偽造
-      req.body.userId = currentUserId;
-    }
+    if (user) {
+      const currentUserId = Number(user.sub || user.id);
 
-    // dishes POST 預設 draft
-    if (urlPath.includes("/dishes") && req.method === "POST") {
-      req.body.status = "draft";
+      if (
+        req.path.includes("/collections") ||
+        req.path.includes("/reviews") ||
+        req.path.includes("/dishes")
+      ) {
+        delete req.body.userId; // 防止偽造
+        req.body.userId = currentUserId;
+      }
+
+      // dishes POST 預設 draft
+      if (req.path.includes("/dishes") && req.method === "POST") {
+        req.body.status = "draft";
+      }
     }
   }
 
@@ -106,7 +106,7 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   4. 管理員權限與 Render 邏輯
+   4. 管理員權限檢查
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
@@ -119,25 +119,31 @@ server.use((req, res, next) => {
   next();
 });
 
+/* ========================
+   5. router.render 安全過濾
+======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
 
-  // --- 強制過濾 collections ---
+  // Collections 過濾
   if (req.method === "GET" && req.path.startsWith("/collections")) {
-    if (Array.isArray(data) && user.role !== "admin") {
+    if (Array.isArray(data) && user && user.role !== "admin") {
+      const currentUserId = Number(user.sub || user.id);
       const filtered = data.filter(
-        (item) => item.userId === Number(user.sub || user.id),
+        (item) => Number(item.userId) === currentUserId,
       );
       return res.jsonp(filtered);
     }
   }
 
-  // --- dishes 可見性過濾 ---
+  // Dishes 可見性過濾
   if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
+      if (!dish) return false;
       if (user && user.role === "admin") return true;
-      if (user && dish.userId === Number(user?.sub || user?.id)) return true;
+      if (user && Number(dish.userId) === Number(user.sub || user.id))
+        return true;
       return dish.status === "published";
     };
 
@@ -149,6 +155,9 @@ router.render = (req, res) => {
   res.jsonp(data);
 };
 
+/* ========================
+   6. 啟動 Server
+======================== */
 server.use(router);
 
 const port = process.env.PORT || 8080;
