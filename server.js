@@ -1,8 +1,8 @@
 const jsonServer = require("json-server");
 const auth = require("json-server-auth");
+auth.secret = process.env.JWT_SECRET || "dev_secret";
 const path = require("path");
 const fs = require("fs");
-
 const server = jsonServer.create();
 
 /* ========================
