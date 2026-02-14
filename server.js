@@ -5,7 +5,7 @@ const fs = require("fs");
 
 const server = jsonServer.create();
 
-// 設定 JWT Secret
+// JWT Secret
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
@@ -64,20 +64,32 @@ server.use(auth); // 解析 Token 並產生 req.user
 server.use((req, res, next) => {
   const user = req.user;
 
-  // --- GET 請求過濾 ---
-  if (req.method === "GET") {
-    if (user) {
-      const currentUserId = Number(user.sub || user.id);
+  // --- GET 請求過濾 collections ---
+  if (req.method === "GET" && req.path.startsWith("/collections")) {
+    if (!user || user.role !== "admin") {
+      const currentUserId = user ? Number(user.sub || user.id) : null;
 
-      // Collections: 普通使用者只看自己的
-      if (req.path.startsWith("/collections") && user.role !== "admin") {
-        req.query = { ...req.query, userId: currentUserId };
-      }
+      // 攔截 res.jsonp 進行過濾
+      const originalJsonp = res.jsonp.bind(res);
+      res.jsonp = (data) => {
+        if (Array.isArray(data)) {
+          const filtered = data.filter(
+            (item) => Number(item.userId) === currentUserId,
+          );
+          return originalJsonp(filtered);
+        }
+        if (data && Number(data.userId) !== currentUserId) {
+          return res.status(404).json({ error: "無權限查看" });
+        }
+        return originalJsonp(data);
+      };
+    }
+  }
 
-      // Users: 普通使用者只看自己
-      if (req.path.startsWith("/users") && user.role !== "admin") {
-        req.query = { ...req.query, id: currentUserId };
-      }
+  // --- GET 請求過濾 users ---
+  if (req.method === "GET" && req.path.startsWith("/users")) {
+    if (user && user.role !== "admin") {
+      req.query = { ...req.query, id: Number(user.sub || user.id) };
     }
   }
 
@@ -120,24 +132,13 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   5. router.render 安全過濾
+   5. router.render 安全過濾 dishes
 ======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
 
-  // Collections 過濾
-  if (req.method === "GET" && req.path.startsWith("/collections")) {
-    if (Array.isArray(data) && user && user.role !== "admin") {
-      const currentUserId = Number(user.sub || user.id);
-      const filtered = data.filter(
-        (item) => Number(item.userId) === currentUserId,
-      );
-      return res.jsonp(filtered);
-    }
-  }
-
-  // Dishes 可見性過濾
+  // Dishes 過濾
   if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
       if (!dish) return false;
