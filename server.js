@@ -1,29 +1,38 @@
 const jsonServer = require("json-server");
 const auth = require("json-server-auth");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
 
 const server = jsonServer.create();
-auth.secret = process.env.JWT_SECRET || "dev_secret";
+auth.secret = "dev_secret";
 
-/* ========================
-   資料庫初始化
-======================== */
-const isProd = process.env.NODE_ENV === "production";
-const dbDirectory = isProd ? "/data" : __dirname;
-const dbPath = path.join(dbDirectory, "db.json");
-
-if (!fs.existsSync(dbDirectory)) fs.mkdirSync(dbDirectory, { recursive: true });
+// ========================
+// 資料庫初始化
+// ========================
+const dbPath = path.join(__dirname, "db.json");
 if (!fs.existsSync(dbPath)) {
   fs.writeFileSync(
     dbPath,
     JSON.stringify(
       {
-        users: [],
-        restaurants: [],
+        users: [
+          { id: 1, email: "user1@test.com", password: "123456", role: "user" },
+          { id: 2, email: "user2@test.com", password: "123456", role: "user" },
+          {
+            id: 99,
+            email: "admin@test.com",
+            password: "123456",
+            role: "admin",
+          },
+        ],
+        collections: [
+          { id: 1, name: "User1 Collection", userId: 1 },
+          { id: 2, name: "User2 Collection", userId: 2 },
+          { id: 3, name: "Admin Collection", userId: 99 },
+        ],
         dishes: [],
         reviews: [],
-        collections: [],
+        restaurants: [],
         news: [],
       },
       null,
@@ -39,9 +48,9 @@ auth.router = router;
 server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
-/* ========================
-   權限規則
-======================== */
+// ========================
+// 權限規則
+// ========================
 const rules = auth.rewriter({
   users: 600,
   collections: 600,
@@ -50,13 +59,12 @@ const rules = auth.rewriter({
   restaurants: 444,
   news: 444,
 });
-
 server.use(rules);
 server.use(auth);
 
-/* ========================
-   綁定 userId
-======================== */
+// ========================
+// 綁定 userId
+// ========================
 server.use((req, res, next) => {
   const user = req.user;
   if (!user) return next();
@@ -69,7 +77,7 @@ server.use((req, res, next) => {
       req.path.includes("/reviews") ||
       req.path.includes("/dishes")
     ) {
-      delete req.body.userId; // 防止偽造
+      delete req.body.userId;
       req.body.userId = currentUserId;
     }
 
@@ -81,9 +89,9 @@ server.use((req, res, next) => {
   next();
 });
 
-/* ========================
-   管理員權限檢查
-======================== */
+// ========================
+// 管理員檢查 dishes 發布
+// ========================
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
     if (req.body.status === "published") {
@@ -95,20 +103,16 @@ server.use((req, res, next) => {
   next();
 });
 
-/* ========================
-   router.render 過濾 collections / dishes
-======================== */
+// ========================
+// router.render 過濾
+// ========================
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
-  const isCollections = req.path.startsWith("/collections");
-  const isDishes = req.path.includes("/dishes");
 
-  // --- Collections 過濾 ---
-  if (isCollections) {
-    if (!user) {
-      return res.status(401).json({ error: "需要登入" });
-    }
+  // --- collections 過濾 ---
+  if (req.path.startsWith("/collections")) {
+    if (!user) return res.status(401).json({ error: "需要登入" });
 
     const isAdmin = user.role === "admin";
     const currentUserId = Number(user.sub || user.id);
@@ -129,11 +133,11 @@ router.render = (req, res) => {
       return res.jsonp(data);
     }
 
-    return res.jsonp([]); // fallback
+    return res.jsonp([]);
   }
 
-  // --- Dishes 過濾 ---
-  if (isDishes) {
+  // --- dishes 過濾 ---
+  if (req.path.includes("/dishes")) {
     const isAdmin = user && user.role === "admin";
     const currentUserId = user ? Number(user.sub || user.id) : null;
 
@@ -149,12 +153,13 @@ router.render = (req, res) => {
       return res.status(404).json({ error: "無權限查看" });
   }
 
+  // 其他資源
   res.jsonp(data);
 };
 
 server.use(router);
 
-const port = process.env.PORT || 8080;
-server.listen(port, "0.0.0.0", () => {
-  console.log(`Spoonful API Running on port ${port}`);
+const port = 8080;
+server.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
 });
