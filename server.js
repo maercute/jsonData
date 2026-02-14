@@ -5,11 +5,11 @@ const fs = require("fs");
 
 const server = jsonServer.create();
 
-// 設定 JWT Secret (確保與你登入時產生 Token 的 Secret 一致)
+// 1. 設定 JWT Secret (確保驗證與加密使用同一把鎖)
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
-   1. 資料庫初始化
+   1. 資料庫與路徑初始化
 ======================== */
 const isProd = process.env.NODE_ENV === "production";
 const dbDirectory = isProd ? "/data" : __dirname;
@@ -56,45 +56,46 @@ const rules = auth.rewriter({
 });
 
 server.use(rules);
-server.use(auth); // 這裡會解析 Header 並產生 req.user
+server.use(auth); // 解析 Token 並將結果存入 req.user
 
 /* ========================
-   3. 核心邏輯：自動過濾 & 綁定 ID
-   (不再手寫 401 攔截，交給 rules 處理)
+   3. 核心邏輯：身分綁定與自動過濾
 ======================== */
 server.use((req, res, next) => {
-  // 如果經過 auth 後還是沒有 user，代表 Token 無效或沒給
-  // 針對 600 的資源，後面的 router 會自動噴 401，我們不需要手寫攔截
+  // 若未登入，則交給後面的路由處理 (由 600 規則擋下)
   if (!req.user) return next();
 
   const urlPath = req.path;
+  // 取得登入者 ID：json-server-auth 通常將 ID 存於 sub 或 id 欄位
+  const currentUserId = req.user.sub || req.user.id;
 
-  // A. POST / PATCH / PUT: 防偽造並強制綁定 userId
+  // A. [寫入權限] POST / PATCH / PUT: 強制綁定身分，防止竄改他人資料
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
-    delete req.body.userId; // 刪除前端傳來的 userId 避免竄改
+    delete req.body.userId; // 安全考量：移除前端傳入的 userId
 
     if (
       urlPath.includes("/collections") ||
       urlPath.includes("/reviews") ||
       urlPath.includes("/dishes")
     ) {
-      req.body.userId = req.user.id;
+      req.body.userId = Number(currentUserId);
     }
 
-    // dishes 特殊邏輯：新增時預設為草稿
+    // dishes 路由特殊邏輯：新投稿預設為草稿
     if (urlPath.includes("/dishes") && req.method === "POST") {
       req.body.status = "draft";
     }
   }
 
-  // B. GET: 自動過濾 (確保 User A 看不到 User B 的私有資料)
+  // B. [讀取過濾] GET: 實現「我的資料只有我能看」
   if (req.method === "GET") {
+    // 收藏清單過濾：確保查詢參數 userId 與登入者一致
     if (urlPath.includes("/collections")) {
-      req.query.userId = req.user.id;
+      req.query.userId = Number(currentUserId);
     }
-    // users 路由：限制只能看自己的 id
+    // 使用者資訊過濾：限制只能查詢自己的 ID
     if (urlPath.includes("/users")) {
-      req.query.id = req.user.id;
+      req.query.id = Number(currentUserId);
     }
   }
 
@@ -102,13 +103,16 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   4. 管理員權限檢查
+   4. 管理員特權：料理發布審核
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
     if (req.body.status === "published") {
+      // 只有 role 為 admin 的使用者可以發布料理
       if (!req.user || req.user.role !== "admin") {
-        return res.status(403).json({ error: "只有管理員可發布料理" });
+        return res
+          .status(403)
+          .json({ error: "權限不足：只有管理員可執行此操作" });
       }
     }
   }
@@ -116,17 +120,18 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   5. 自定義 Render (處理 dishes 可見性)
+   5. 自定義 Render：控制 dishes 可見性
 ======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
 
+  // 針對 dishes 路由進行特殊可見性過濾
   if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
-      if (user && user.role === "admin") return true;
-      if (user && dish.userId === user.id) return true;
-      return dish.status === "published";
+      if (user && user.role === "admin") return true; // 管理員可看全部
+      if (user && dish.userId === (user.sub || user.id)) return true; // 本人可看草稿
+      return dish.status === "published"; // 一般大眾僅能看已發布內容
     };
 
     if (Array.isArray(data)) return res.jsonp(data.filter(isVisible));
@@ -141,5 +146,5 @@ server.use(router);
 
 const port = process.env.PORT || 8080;
 server.listen(port, "0.0.0.0", () => {
-  console.log(`Spoonful API 運行中 | Port: ${port}`);
+  console.log(`Spoonful API 已成功啟動 | Port: ${port}`);
 });
