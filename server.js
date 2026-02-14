@@ -35,6 +35,7 @@ if (!fs.existsSync(dbPath)) {
 
 const router = jsonServer.router(dbPath);
 server.db = router.db;
+auth.router = router;
 
 server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
