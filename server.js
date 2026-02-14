@@ -50,6 +50,17 @@ server.use(rules);
 
 server.use(auth);
 
+// Debug: log auth header and req.user for /collections requests
+server.use((req, res, next) => {
+  if (!req.path.startsWith("/collections")) return next();
+  console.log("[DEBUG] /collections headers:", {
+    authorization: req.headers["authorization"] || null,
+    cookie: req.headers["cookie"] || null,
+  });
+  console.log("[DEBUG] req.user:", req.user || null);
+  return next();
+});
+
 // Collections access control middleware
 // - 要求登入（json-server-auth 會把使用者放在 req.user）
 // - 非 admin 使用者只能看到/操作屬於自己的 collections（以 userId 欄位判斷）
