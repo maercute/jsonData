@@ -50,6 +50,51 @@ server.use(rules);
 
 server.use(auth);
 
+// Collections access control middleware
+// - 要求登入（json-server-auth 會把使用者放在 req.user）
+// - 非 admin 使用者只能看到/操作屬於自己的 collections（以 userId 欄位判斷）
+server.use((req, res, next) => {
+  if (!req.path.startsWith("/collections")) return next();
+
+  const user = req.user;
+  if (!user)
+    return res.status(401).json({ error: "需登入才能存取 collections" });
+
+  const isAdmin = user.role === "admin" || user.isAdmin === true;
+
+  // GET /collections -> 僅回傳自己的 collections（非 admin）
+  if (
+    req.method === "GET" &&
+    /^\/collections\/?$/.test(req.path.split("?")[0])
+  ) {
+    if (!isAdmin) {
+      req.query = req.query || {};
+      req.query.userId = String(user.id);
+    }
+    return next();
+  }
+
+  // GET /collections/:id 以及修改/刪除等需要檢查該資源是否屬於使用者
+  const matchId = req.path.split("/")[2];
+  const id = matchId ? Number(matchId.split("?")[0]) : null;
+
+  if (id) {
+    const item = server.db.get("collections").find({ id: id }).value();
+    if (!item) return res.status(404).json({ error: "Collection not found" });
+    if (item.userId !== user.id && !isAdmin) {
+      return res.status(403).json({ error: "沒有權限存取此 collection" });
+    }
+  }
+
+  // POST: 確保新建立的 collection 屬於登入者
+  if (req.method === "POST") {
+    req.body = req.body || {};
+    req.body.userId = user.id;
+  }
+
+  return next();
+});
+
 server.use(router);
 
 const port = process.env.PORT || 8080;
