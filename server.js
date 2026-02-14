@@ -5,7 +5,7 @@ const fs = require("fs");
 
 const server = jsonServer.create();
 
-// 1. 設定 JWT Secret (確保驗證與加密使用同一把鎖)
+// 設定 JWT Secret
 auth.secret = process.env.JWT_SECRET || "dev_secret";
 
 /* ========================
@@ -44,7 +44,7 @@ server.use(jsonServer.bodyParser);
 server.use(jsonServer.defaults());
 
 /* ========================
-   2. 權限規則設定 (Rewriter)
+   2. 權限規則設定
 ======================== */
 const rules = auth.rewriter({
   users: 600,
@@ -56,23 +56,21 @@ const rules = auth.rewriter({
 });
 
 server.use(rules);
-server.use(auth); // 解析 Token 並將結果存入 req.user
+server.use(auth); // 解析 Token 並產生 req.user
 
 /* ========================
-   3. 核心邏輯：身分綁定與自動過濾
+   3. 核心邏輯：自動過濾 & 綁定 ID (修正版)
 ======================== */
 server.use((req, res, next) => {
-  // 若未登入，則交給後面的路由處理 (由 600 規則擋下)
   if (!req.user) return next();
 
-  const urlPath = req.path;
-  // 取得登入者 ID：json-server-auth 通常將 ID 存於 sub 或 id 欄位
+  // 取得 ID：json-server-auth 解析出來的 ID 可能在 sub 或 id
   const currentUserId = req.user.sub || req.user.id;
+  const urlPath = req.path;
 
-  // A. [寫入權限] POST / PATCH / PUT: 強制綁定身分，防止竄改他人資料
+  // --- [寫入權限] POST / PATCH / PUT ---
   if (["POST", "PATCH", "PUT"].includes(req.method)) {
-    delete req.body.userId; // 安全考量：移除前端傳入的 userId
-
+    delete req.body.userId; // 防止竄改
     if (
       urlPath.includes("/collections") ||
       urlPath.includes("/reviews") ||
@@ -80,21 +78,24 @@ server.use((req, res, next) => {
     ) {
       req.body.userId = Number(currentUserId);
     }
-
-    // dishes 路由特殊邏輯：新投稿預設為草稿
     if (urlPath.includes("/dishes") && req.method === "POST") {
       req.body.status = "draft";
     }
   }
 
-  // B. [讀取過濾] GET: 實現「我的資料只有我能看」
+  // --- [讀取過濾] GET：解決看到所有人資料的關鍵 ---
   if (req.method === "GET") {
-    // 收藏清單過濾：確保查詢參數 userId 與登入者一致
-    if (urlPath.includes("/collections")) {
+    // 修正：使用 URL 物件來強制添加 userId 查詢參數
+    // 這能確保即便原本網址有 _expand 等參數也不會衝突
+    if (urlPath === "/collections" || urlPath.startsWith("/collections/")) {
       req.query.userId = Number(currentUserId);
+      console.log(
+        `[Filter] 已將 userId=${currentUserId} 加入 collections 請求`,
+      );
     }
-    // 使用者資訊過濾：限制只能查詢自己的 ID
-    if (urlPath.includes("/users")) {
+
+    // 針對單一用戶查詢：限制只能看自己
+    if (urlPath === "/users" || urlPath.startsWith("/users/")) {
       req.query.id = Number(currentUserId);
     }
   }
@@ -103,42 +104,33 @@ server.use((req, res, next) => {
 });
 
 /* ========================
-   4. 管理員特權：料理發布審核
+   4. 管理員與渲染邏輯 (保持不變)
 ======================== */
 server.use((req, res, next) => {
   if (req.method === "PATCH" && req.path.includes("/dishes")) {
     if (req.body.status === "published") {
-      // 只有 role 為 admin 的使用者可以發布料理
       if (!req.user || req.user.role !== "admin") {
-        return res
-          .status(403)
-          .json({ error: "權限不足：只有管理員可執行此操作" });
+        return res.status(403).json({ error: "只有管理員可發布料理" });
       }
     }
   }
   next();
 });
 
-/* ========================
-   5. 自定義 Render：控制 dishes 可見性
-======================== */
 router.render = (req, res) => {
   const data = res.locals.data;
   const user = req.user;
 
-  // 針對 dishes 路由進行特殊可見性過濾
   if (req.method === "GET" && req.path.includes("/dishes")) {
     const isVisible = (dish) => {
-      if (user && user.role === "admin") return true; // 管理員可看全部
-      if (user && dish.userId === (user.sub || user.id)) return true; // 本人可看草稿
-      return dish.status === "published"; // 一般大眾僅能看已發布內容
+      if (user && user.role === "admin") return true;
+      if (user && dish.userId === (user.sub || user.id)) return true;
+      return dish.status === "published";
     };
-
     if (Array.isArray(data)) return res.jsonp(data.filter(isVisible));
     if (data && !isVisible(data))
-      return res.status(404).json({ error: "找不到該內容或無權限查看" });
+      return res.status(404).json({ error: "找不到該內容" });
   }
-
   res.jsonp(data);
 };
 
@@ -146,5 +138,5 @@ server.use(router);
 
 const port = process.env.PORT || 8080;
 server.listen(port, "0.0.0.0", () => {
-  console.log(`Spoonful API 已成功啟動 | Port: ${port}`);
+  console.log(`✅ Spoonful API 運行中 | Port: ${port}`);
 });
